@@ -11,9 +11,36 @@ from pytlas import training, translations, intent, meta
 @training('en')
 def en_training(): return """
 %[add_reminder]
-  add a reminder @[date] at @[time] to @[action]
-  remind me @[date] at @[time] to @[action]
-  remind me every @[frequency] at @[time] to @[action]
+  remind me to @[reminder_object] @[reminder_date_time]
+  remind me @[reminder_date_time] to @[reminder_object]
+
+%[add_recurrent_reminder]
+  remind me every @[reminder_frequency] @[reminder_time] to @[reminder_object]
+  remind me to @[reminder_object] every @[reminder_frequency] @[reminder_time] 
+
+@[reminder_object]
+  walk the dog
+  call my wife
+  do homework  
+  buy a gift to my boss
+
+@[reminder_frequency]
+  week
+  month
+  day
+  working day
+  5th of July
+
+@[reminder_date_time](type=datetime)
+  in one hour
+  tomorrow
+  next week
+  25th of December
+
+@[reminder_time](type=datetime)
+  at 6 o'clock
+  at noon
+  at 3:20
 """
 
 # And in other supported languages, we define the same TEMPLATE_SKILL_INTENT with
@@ -22,10 +49,38 @@ def en_training(): return """
 @training('fr')
 def fr_training(): return """
 %[add_reminder]
-  ajoute un rappel pour @[date] à @[time] de @[action]
-  ajoute un rappel récurrent tous les @[frequency] à @[time] de @[action]
-  rappelle moi tous les @[frequency] à @[time] de @[action]
+  rappelle moi @[reminder_date_time] de @[reminder_object]
+  rappelle moi de @[reminder_object] @[reminder_date_time]
+%[add_recurrent_reminder]
+  rappelle moi tous les @[reminder_frequency] @[reminder_time] de @[reminder_object]
+  rappelle moi  de @[reminder_object] tous les @[reminder_frequency] @[reminder_time]
 
+@[reminder_object]
+  promender le chien
+  appeler mon épouse
+  faire mes devoirs
+  acheter un cadeau pour mon patron
+
+@[reminder_frequency]
+  jour
+  semaine
+  mois
+  jours ouvrés
+  jours travaillés
+  28 mars
+  2 juillet
+
+@[reminder_date_time](type=datetime)
+  dans 1 heure
+  demain
+  aprés demain
+  la semaine prochaine
+  le 25 décembre
+
+@[reminder_time](type=datetime)
+  à 6 heure
+  à midi
+  à 3:20
 """
 
 # Let's define some metadata for this skill. This step is optional but enables
@@ -44,8 +99,9 @@ def template_skill_meta(_): return {
 
 @translations('fr')
 def fr_translations(): return {
-  'Reminder': 'Rappel',
-  'Hello from the reminder skill' : 'Bonjour depuis la compétence rappel'
+  'When do you want I remind you?' : 'Quand voulez vous que je vous le rappelle?',
+  'What do you want I remind you?' : 'Quel est l\'objet du rappel?',
+  'Ok I will remind you to {0} {1}' : 'Ok, je vous rappellerai de {0} le {1}',
 }
 
 # The final part is your handler registered to be called upon TEMPLATE_SKILL_INTENT
@@ -55,7 +111,13 @@ def fr_translations(): return {
 def on_add_reminder_intent(req):
 
   # Using the pytlas API to communicate with the user: https://pytlas.readthedocs.io/en/latest/writing_skills/handler.html
- 
-  req.agent.answer(req._('Hello from the reminder skill'))
-
+  reminder_date = req.intent.slot('reminder_date_time').first().value 
+  if  reminder_date == None:
+    return req.agent.ask('reminder_date_time', req._('When do you want I remind you?'))
+  reminder_object = req.intent.slot('reminder_object').first().value 
+  if reminder_object == None:
+    return req.agent.ask('reminder_object', req._('What do you want I remind you?'))
+  reminder_date_text = req._d(reminder_date)
+  answer_text = req._('Ok I will remind you to {0} {1}').format(reminder_object, reminder_date_text)
+  req.agent.answer(answer_text)
   return req.agent.done()
