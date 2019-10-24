@@ -6,7 +6,7 @@ Skill reminder for the [pytlas assistant](https://github.com/atlassistant/pytlas
 
 ## How to use this reminder?
 
-This reminder allow you create an manage reminder.
+This reminder allow you create an manage your reminders.
 
 ## Supported languages
 
@@ -15,12 +15,11 @@ This reminder allow you create an manage reminder.
 
 ## Typical sentences
 
--   add a reminder tomorrow at 2pm to buy a car
--   rappelle moi tous les jours à midi de manger
-
+- add a reminder tomorrow at 2pm to buy a car
+- rappelle moi tous les mardi de sortir la poubelle
 ## Configuration
 
-*If your skill needs some [configuration](https://pytlas.readthedocs.io/en/latest/writing_skills/settings.html), write them here.*
+
 ***TODO***
 
 ## Launching tests

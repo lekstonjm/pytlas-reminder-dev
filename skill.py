@@ -1,5 +1,7 @@
 from pytlas import training, translations, intent, meta
-
+from datetime import datetime
+import dateutil
+import sqlite3
 # Hey there o/
 # Glad you're taking some times to make a skill for the pytlas assistant!
 # Here is all you have to know to make your own skills, let's go!
@@ -11,10 +13,8 @@ from pytlas import training, translations, intent, meta
 @training('en')
 def en_training(): return """
 %[add_reminder]
-  remind me to @[reminder_object] @[reminder_date_time]
-  remind me @[reminder_date_time] to @[reminder_object]
-
-%[add_recurrent_reminder]
+  remind me to @[reminder_object] @[reminder_date] at @[reminder_time]
+  remind me @[reminder_date] at @[reminder_time] @[reminder_object]
   remind me every @[reminder_frequency] @[reminder_time] to @[reminder_object]
   remind me to @[reminder_object] every @[reminder_frequency] @[reminder_time] 
 
@@ -31,16 +31,16 @@ def en_training(): return """
   working day
   5th of July
 
-@[reminder_date_time](type=datetime)
-  in one hour
+@[reminder_date](type=datetime)
   tomorrow
   next week
   25th of December
 
 @[reminder_time](type=datetime)
-  at 6 o'clock
-  at noon
-  at 3:20
+  6 o'clock
+  noon
+  3:20
+  in one hour  
 """
 
 # And in other supported languages, we define the same TEMPLATE_SKILL_INTENT with
@@ -49,9 +49,8 @@ def en_training(): return """
 @training('fr')
 def fr_training(): return """
 %[add_reminder]
-  rappelle moi @[reminder_date_time] de @[reminder_object]
-  rappelle moi de @[reminder_object] @[reminder_date_time]
-%[add_recurrent_reminder]
+  rappelle moi @[reminder_date] de @[reminder_object]
+  rappelle moi de @[reminder_object] @[reminder_date] 
   rappelle moi tous les @[reminder_frequency] @[reminder_time] de @[reminder_object]
   rappelle moi  de @[reminder_object] tous les @[reminder_frequency] @[reminder_time]
 
@@ -70,7 +69,7 @@ def fr_training(): return """
   28 mars
   2 juillet
 
-@[reminder_date_time](type=datetime)
+@[reminder_date](type=datetime)
   dans 1 heure
   demain
   aprés demain
@@ -107,17 +106,34 @@ def fr_translations(): return {
 # The final part is your handler registered to be called upon TEMPLATE_SKILL_INTENT
 # recognition by the pytlas interpreter.
 
+
+
 @intent('add_reminder')
 def on_add_reminder_intent(req):
+  
+  reminder_date = req.intent.slot('reminder_date').first().value 
+  reminder_frequency = req.intent.slot('reminder_frequency').first().value
 
-  # Using the pytlas API to communicate with the user: https://pytlas.readthedocs.io/en/latest/writing_skills/handler.html
-  reminder_date = req.intent.slot('reminder_date_time').first().value 
-  if  reminder_date == None:
-    return req.agent.ask('reminder_date_time', req._('When do you want I remind you?'))
+  if  reminder_date == None and reminder_frequency == None:
+    return req.agent.ask('reminder_date', req._('When do you want I remind you?'))
+
+  if reminder_frequency == None:
+    reminder_frequency = 'Once'
+
+  if reminder_date == None:
+    reminder_date = datetime.now().date()  
+  reminder_date_text = req._d(reminder_date, date_only=True)
+  reminder_time = req.intent.slot('reminder_time').first().value
+  if reminder_time == None:
+    return req.agent.ask('reminder_time', req._('Wich time will fits you?'))
+  reminder_time_text = req._d(reminder_time, time_only=True)
+
   reminder_object = req.intent.slot('reminder_object').first().value 
   if reminder_object == None:
     return req.agent.ask('reminder_object', req._('What do you want I remind you?'))
-  reminder_date_text = req._d(reminder_date)
-  answer_text = req._('Ok I will remind you to {0} {1}').format(reminder_object, reminder_date_text)
+  if reminder_frequency == "once":
+    answer_text = req._('Ok I will remind you {1} at {2} to {3}').format(reminder_date_text, reminder_time_text, reminder_object)
+  else:
+    answer_text = req._('Ok I will remind you to {0} every {1} at {3} starting {2}').format(reminder_object, reminder_frequency, reminder_date_text, reminder_time_text)
   req.agent.answer(answer_text)
   return req.agent.done()
