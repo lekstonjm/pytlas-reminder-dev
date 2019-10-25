@@ -1,7 +1,9 @@
 from pytlas import training, translations, intent, meta
+import pytlas.settings as settings
 from datetime import datetime
 import dateutil
 import sqlite3
+import os
 # Hey there o/
 # Glad you're taking some times to make a skill for the pytlas assistant!
 # Here is all you have to know to make your own skills, let's go!
@@ -110,7 +112,38 @@ def fr_translations(): return {
 
 @intent('add_reminder')
 def on_add_reminder_intent(req):
-  
+  reminder_db_path = req.agent.settings.get('reminder_db_path',section='pytlas_reminder')
+  if reminder_db_path == None:
+    reminder_db_path = os.path.join(os.getcwd(),'pytlas_reminder.sqlite')
+
+  if not os.path.isfile(reminder_db_path):
+    reminder_db_create_confirmed = req.intent.slot('reminder_db_create_confirmed').first().value
+    if reminder_db_create_confirmed == None:
+      return req.agent.ask('reminder_db_create_confirmed',\
+      req._('Reminder database can not be found at {0}. A new database will be created in this location.\nDo you want continue?').format(reminder_db_path),\
+      ['yes','no'])
+    if reminder_db_create_confirmed == 'yes':
+      try:
+        db_connection = sqlite3.connect(reminder_db_path)
+        db_connection.cursor()
+        db_connection.execute("""
+        CREATE TABLE IF NOT EXISTS reminder
+        (reference_date datetime,
+        reference_time datetime,
+        recurrence_type int,
+        days_of_weed int,
+        next_occurence datetime,
+        object text)
+        """)
+        db_connection.commit()
+      except Exception as ex:
+        req.agent.answer(req._('Unable to create database: {0}').format(ex))
+        req.agent.done()
+    else:
+      req.agent.answer(req._('Goodbye'))
+      req.agent.done()
+
+
   reminder_date = req.intent.slot('reminder_date').first().value 
   reminder_frequency = req.intent.slot('reminder_frequency').first().value
 
