@@ -27,11 +27,14 @@ def en_training(): return """
   buy a gift to my boss
 
 @[reminder_frequency]
+  day
+  monday
+  friday
+  working day
   week
   month
-  day
-  working day
-  5th of July
+  trimester
+  semester
 
 @[reminder_date](type=datetime)
   tomorrow
@@ -108,7 +111,11 @@ def fr_translations(): return {
 # The final part is your handler registered to be called upon TEMPLATE_SKILL_INTENT
 # recognition by the pytlas interpreter.
 
-
+def calculate_next_occurence(date_reference, time_reference, occurence_type):
+  if occurence_type == 'once':
+    return datetime.combine(date_reference, time_reference)
+  else:
+    return datetime.now()
 
 @intent('add_reminder')
 def on_add_reminder_intent(req):
@@ -128,14 +135,15 @@ def on_add_reminder_intent(req):
         db_connection.cursor()
         db_connection.execute("""
         CREATE TABLE IF NOT EXISTS reminder
-        (reference_date datetime,
+        (id integer PRIMARY KEY,
+        reference_date datetime,
         reference_time datetime,
-        recurrence_type int,
-        days_of_weed int,
+        recurrence_type text,
         next_occurence datetime,
         object text)
         """)
         db_connection.commit()
+        db_connection.close()
       except Exception as ex:
         req.agent.answer(req._('Unable to create database: {0}').format(ex))
         req.agent.done()
@@ -151,7 +159,7 @@ def on_add_reminder_intent(req):
     return req.agent.ask('reminder_date', req._('When do you want I remind you?'))
 
   if reminder_frequency == None:
-    reminder_frequency = 'Once'
+    reminder_frequency = 'once'
 
   if reminder_date == None:
     reminder_date = datetime.now().date()  
@@ -164,8 +172,28 @@ def on_add_reminder_intent(req):
   reminder_object = req.intent.slot('reminder_object').first().value 
   if reminder_object == None:
     return req.agent.ask('reminder_object', req._('What do you want I remind you?'))
+  next_occurence = calculate_next_occurence(reminder_date.date(), reminder_time.time(), reminder_frequency)
+
+  try:
+    db_connection = sqlite3.connect(reminder_db_path)
+    db_connection.cursor()
+    insert_command = """
+    INSERT INTO reminder
+    (reference_date, reference_time, recurrence_type, object, next_occurence) 
+    VALUES 
+    (?,?,?,?,?)
+    """
+    insert_parameters = (reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence)
+    db_connection.execute(insert_command, insert_parameters)
+    db_connection.commit()
+    db_connection.close()
+  except Exception as ex:
+    req.agent.answer(req._('Unable to insert reminder in database: {0}').format(ex))
+    req.agent.done()    
+
+
   if reminder_frequency == "once":
-    answer_text = req._('Ok I will remind you {1} at {2} to {3}').format(reminder_date_text, reminder_time_text, reminder_object)
+    answer_text = req._('Ok I will remind you {0} at {1} to {2}').format(reminder_date_text, reminder_time_text, reminder_object)
   else:
     answer_text = req._('Ok I will remind you to {0} every {1} at {3} starting {2}').format(reminder_object, reminder_frequency, reminder_date_text, reminder_time_text)
   req.agent.answer(answer_text)
