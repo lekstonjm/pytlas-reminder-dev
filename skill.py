@@ -1,9 +1,16 @@
 from pytlas import training, translations, intent, meta
+from pytlas.handling.hooks import on_agent_created, on_agent_destroyed
 import pytlas.settings as settings
 from datetime import datetime
+from threading import Thread
 import dateutil
 import sqlite3
 import os
+import time
+
+DEFAULT_SLEEP_TIME = 0.5
+DEFAULT_TIMEOUT = 1.0
+
 # Hey there o/
 # Glad you're taking some times to make a skill for the pytlas assistant!
 # Here is all you have to know to make your own skills, let's go!
@@ -111,11 +118,46 @@ def fr_translations(): return {
 # The final part is your handler registered to be called upon TEMPLATE_SKILL_INTENT
 # recognition by the pytlas interpreter.
 
+
 def calculate_next_occurence(date_reference, time_reference, occurence_type):
   if occurence_type == 'once':
     return datetime.combine(date_reference, time_reference)
   else:
     return datetime.now()
+
+class ReminderMonitor(Thread):
+  def __init__(self):
+    super().__init__()
+    self.is_stopped = False
+  def run(self):
+    while (not self.is_stopped):
+      time.sleep(DEFAULT_SLEEP_TIME)
+  def stop(self):
+    self.is_stopped = True
+    self.join(DEFAULT_TIMEOUT)
+
+agents=[]
+monitor = None
+
+@on_agent_created()
+def when_an_agent_is_created(agt):
+  # On conserve une référence à l'agent
+  global agents
+  global monitor
+  if agents.count == 0:
+    monitor = ReminderMonitor()
+  agents.append(agt)
+  pass
+
+@on_agent_destroyed()
+def when_an_agent_is_destroyed(agt):
+  # On devrait clear les timers pour l'agent à ce moment là
+  global agents
+  global monitor
+  agents = [agent for agent in agents if agent.id != agt.id]
+  if agents.count == 0 :
+    monitor.stop()
+  pass  
 
 @intent('add_reminder')
 def on_add_reminder_intent(req):
