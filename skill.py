@@ -126,26 +126,91 @@ def calculate_next_occurence(date_reference, time_reference, occurence_type):
     return datetime.now()
 
 class ReminderMonitor(Thread):
-  def __init__(self):
+  def __init__(self, reminder_db_path):
     super().__init__()
+    self.reminder_db_path = reminder_db_path
     self.is_stopped = False
+
   def run(self):
     while (not self.is_stopped):
+      self.proceed_reminder()
       time.sleep(DEFAULT_SLEEP_TIME)
+
   def stop(self):
     self.is_stopped = True
     self.join(DEFAULT_TIMEOUT)
 
+  def proceed_reminder(self):
+    global agents
+    try:
+      db_connection = sqlite3.connect(self.reminder_db_path)
+      db_connection.cursor()
+      sql_command = """
+      SELECT object from reminder WHERE next_occurence <= ?
+      """
+      sql_parameters = (datetime.now())
+      db_connection.execute(sql_command, sql_parameters)
+      db_connection.commit()
+      occurences = db_connection.fetchall()
+      sql_command = """
+      DELETE FROM reminder WHERE next_occurence <= ? AND frequency = 'Once'
+      """
+      db_connection.execute(sql_command, sql_parameters)
+      db_connection.commit()
+      db_connection.close()
+      for occurence in occurences:
+        for agent in agent:
+          agent.answer(occurence[0])
+    except Exception as _ex:
+      pass
+  def create_database(self):
+    db_connection = sqlite3.connect(self.reminder_db_path)
+    db_connection.cursor()
+    db_connection.execute("""
+    CREATE TABLE IF NOT EXISTS reminder
+    (id integer PRIMARY KEY,
+    reference_date datetime,
+    reference_time datetime,
+    recurrence_type text,
+    next_occurence datetime,
+    object text)
+    """)
+    db_connection.commit()
+    db_connection.close()
+
+  def add_reminder(self, reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence):
+    db_connection = sqlite3.connect(self.reminder_db_path)
+    db_connection.cursor()
+    insert_command = """
+    INSERT INTO reminder
+    (reference_date, reference_time, recurrence_type, object, next_occurence) 
+    VALUES 
+    (?,?,?,?,?)
+    """
+    insert_parameters = (reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence)
+    db_connection.execute(insert_command, insert_parameters)
+    db_connection.commit()
+    db_connection.close()
+  
+  def database_exists(self):
+    return os.path.isfile(self.reminder_db_path)
+
 agents=[]
 monitor = None
+
 
 @on_agent_created()
 def when_an_agent_is_created(agt):
   # On conserve une référence à l'agent
   global agents
   global monitor
+
   if agents.count == 0:
-    monitor = ReminderMonitor()
+    reminder_db_path = agt.settings.get('reminder_db_path',section='pytlas_reminder')
+    if reminder_db_path == None:
+      reminder_db_path = os.path.join(os.getcwd(),'pytlas_reminder.sqlite')    
+    monitor = ReminderMonitor(reminder_db_path)
+    
   agents.append(agt)
   pass
 
@@ -161,38 +226,22 @@ def when_an_agent_is_destroyed(agt):
 
 @intent('add_reminder')
 def on_add_reminder_intent(req):
-  reminder_db_path = req.agent.settings.get('reminder_db_path',section='pytlas_reminder')
-  if reminder_db_path == None:
-    reminder_db_path = os.path.join(os.getcwd(),'pytlas_reminder.sqlite')
-
-  if not os.path.isfile(reminder_db_path):
+  global monitor
+  if not monitor.database_exists():
     reminder_db_create_confirmed = req.intent.slot('reminder_db_create_confirmed').first().value
     if reminder_db_create_confirmed == None:
       return req.agent.ask('reminder_db_create_confirmed',\
-      req._('Reminder database can not be found at {0}. A new database will be created in this location.\nDo you want continue?').format(reminder_db_path),\
+      req._('Reminder database can not be found at {0}. A new database will be created in this location.\nDo you want continue?').format(monitor.reminder_db_path),\
       ['yes','no'])
     if reminder_db_create_confirmed == 'yes':
       try:
-        db_connection = sqlite3.connect(reminder_db_path)
-        db_connection.cursor()
-        db_connection.execute("""
-        CREATE TABLE IF NOT EXISTS reminder
-        (id integer PRIMARY KEY,
-        reference_date datetime,
-        reference_time datetime,
-        recurrence_type text,
-        next_occurence datetime,
-        object text)
-        """)
-        db_connection.commit()
-        db_connection.close()
+        monitor.create_database()
       except Exception as ex:
         req.agent.answer(req._('Unable to create database: {0}').format(ex))
-        req.agent.done()
+        req.agent.done()      
     else:
       req.agent.answer(req._('Goodbye'))
       req.agent.done()
-
 
   reminder_date = req.intent.slot('reminder_date').first().value 
   reminder_frequency = req.intent.slot('reminder_frequency').first().value
@@ -217,22 +266,10 @@ def on_add_reminder_intent(req):
   next_occurence = calculate_next_occurence(reminder_date.date(), reminder_time.time(), reminder_frequency)
 
   try:
-    db_connection = sqlite3.connect(reminder_db_path)
-    db_connection.cursor()
-    insert_command = """
-    INSERT INTO reminder
-    (reference_date, reference_time, recurrence_type, object, next_occurence) 
-    VALUES 
-    (?,?,?,?,?)
-    """
-    insert_parameters = (reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence)
-    db_connection.execute(insert_command, insert_parameters)
-    db_connection.commit()
-    db_connection.close()
+    monitor.add_reminder(reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence)
   except Exception as ex:
     req.agent.answer(req._('Unable to insert reminder in database: {0}').format(ex))
     req.agent.done()    
-
 
   if reminder_frequency == "once":
     answer_text = req._('Ok I will remind you {0} at {1} to {2}').format(reminder_date_text, reminder_time_text, reminder_object)
