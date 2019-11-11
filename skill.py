@@ -7,8 +7,10 @@ import dateutil
 import sqlite3
 import os
 import time
+import weakref
+import logging
 
-DEFAULT_SLEEP_TIME = 1.0
+DEFAULT_SLEEP_TIME = 3.0
 DEFAULT_TIMEOUT = 1.0
 
 # Hey there o/
@@ -130,16 +132,35 @@ class ReminderMonitor(Thread):
     super().__init__()
     self.reminder_db_path = reminder_db_path
     self.is_stopped = False
-
+    self._logger = logging.getLogger(self.__class__.__name__.lower())
+    
   def run(self):
+    self._logger.info("Monitor started")
     while (not self.is_stopped):
       self.proceed_reminder()
       time.sleep(DEFAULT_SLEEP_TIME)
+    self._logger.info("Monitor ended")
 
   def stop(self):
+    self._logger.info("Monitor stopping")
     self.is_stopped = True
-    self.join(DEFAULT_TIMEOUT)
-  
+    #self.join(DEFAULT_TIMEOUT)
+
+  def proceed_reminder(self):
+    global agents
+    try:
+      db_connection = sqlite3.connect(self.reminder_db_path)
+      db_connection.cursor()
+      occurences = self.select_occurences(db_connection)
+      self.update_occurences(db_connection)
+      db_connection.close()
+      for occurence in occurences:
+        for _agent_id, agent_ref in agents.items():
+          if not agent_ref() == None:  
+            agent_ref().answer(occurence[0])
+    except Exception as _ex:
+      pass
+
   def database_exists(self):
     return os.path.isfile(self.reminder_db_path)
 
@@ -167,19 +188,6 @@ class ReminderMonitor(Thread):
     except Exception as _ex:
       pass
 
-  def proceed_reminder(self):
-    global agents
-    try:
-      db_connection = sqlite3.connect(self.reminder_db_path)
-      db_connection.cursor()
-      occurences = self.select_occurences(db_connection)
-      self.update_occurences(db_connection)
-      db_connection.close()
-      for occurence in occurences:
-        for agent in agents:
-          agent.answer(occurence[0])
-    except Exception as _ex:
-      pass
   
   def create_database(self):
     db_connection = sqlite3.connect(self.reminder_db_path)
@@ -210,7 +218,8 @@ class ReminderMonitor(Thread):
     db_connection.commit()
     db_connection.close()  
 
-agents=[]
+
+agents={}
 monitor = None
 
 
@@ -228,7 +237,7 @@ def when_an_agent_is_created(agt):
     monitor = ReminderMonitor(reminder_db_path)
     monitor.start()
     agt._logger.info("Monitor started {0}".format(monitor.reminder_db_path))    
-  agents.append(agt)
+  agents[agt.id] =  weakref.ref(agt)
   pass
 
 @on_agent_destroyed()
@@ -236,8 +245,10 @@ def when_an_agent_is_destroyed(agt):
   # On devrait clear les timers pour l'agent à ce moment là
   global agents
   global monitor
-  agents = [agent for agent in agents if agent.id != agt.id]
+  agt._logger.info("Destroying agent")
+  agents.pop(agt.id, None)  
   if len(agents) == 0 :
+    agt._logger.info("Stopping monitor")
     monitor.stop()
   pass  
 
