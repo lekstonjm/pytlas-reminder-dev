@@ -8,7 +8,7 @@ import sqlite3
 import os
 import time
 
-DEFAULT_SLEEP_TIME = 0.5
+DEFAULT_SLEEP_TIME = 1.0
 DEFAULT_TIMEOUT = 1.0
 
 # Hey there o/
@@ -139,12 +139,23 @@ class ReminderMonitor(Thread):
   def stop(self):
     self.is_stopped = True
     self.join(DEFAULT_TIMEOUT)
+  
+  def database_exists(self):
+    return os.path.isfile(self.reminder_db_path)
 
-  def proceed_reminder(self):
-    global agents
+  def update_occurences(self, db_connection):
     try:
-      db_connection = sqlite3.connect(self.reminder_db_path)
-      db_connection.cursor()
+      sql_command = """
+      DELETE FROM reminder WHERE next_occurence <= ? AND frequency = 'once'
+      """
+      sql_parameters = (datetime.now())
+      db_connection.execute(sql_command, sql_parameters)
+      db_connection.commit()
+    except Exception as _ex:
+      pass
+  
+  def select_occurences(self, db_connection):
+    try:
       sql_command = """
       SELECT object from reminder WHERE next_occurence <= ?
       """
@@ -152,17 +163,24 @@ class ReminderMonitor(Thread):
       db_connection.execute(sql_command, sql_parameters)
       db_connection.commit()
       occurences = db_connection.fetchall()
-      sql_command = """
-      DELETE FROM reminder WHERE next_occurence <= ? AND frequency = 'Once'
-      """
-      db_connection.execute(sql_command, sql_parameters)
-      db_connection.commit()
+      return occurences
+    except Exception as _ex:
+      pass
+
+  def proceed_reminder(self):
+    global agents
+    try:
+      db_connection = sqlite3.connect(self.reminder_db_path)
+      db_connection.cursor()
+      occurences = self.select_occurences(db_connection)
+      self.update_occurences(db_connection)
       db_connection.close()
       for occurence in occurences:
-        for agent in agent:
+        for agent in agents:
           agent.answer(occurence[0])
     except Exception as _ex:
       pass
+  
   def create_database(self):
     db_connection = sqlite3.connect(self.reminder_db_path)
     db_connection.cursor()
@@ -190,10 +208,7 @@ class ReminderMonitor(Thread):
     insert_parameters = (reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence)
     db_connection.execute(insert_command, insert_parameters)
     db_connection.commit()
-    db_connection.close()
-  
-  def database_exists(self):
-    return os.path.isfile(self.reminder_db_path)
+    db_connection.close()  
 
 agents=[]
 monitor = None
@@ -204,13 +219,15 @@ def when_an_agent_is_created(agt):
   # On conserve une référence à l'agent
   global agents
   global monitor
+  agt._logger.info("{0}".format(len(agents)))    
 
-  if agents.count == 0:
+  if len(agents) == 0:
     reminder_db_path = agt.settings.get('reminder_db_path',section='pytlas_reminder')
     if reminder_db_path == None:
       reminder_db_path = os.path.join(os.getcwd(),'pytlas_reminder.sqlite')    
     monitor = ReminderMonitor(reminder_db_path)
-    
+    monitor.start()
+    agt._logger.info("Monitor started {0}".format(monitor.reminder_db_path))    
   agents.append(agt)
   pass
 
@@ -220,7 +237,7 @@ def when_an_agent_is_destroyed(agt):
   global agents
   global monitor
   agents = [agent for agent in agents if agent.id != agt.id]
-  if agents.count == 0 :
+  if len(agents) == 0 :
     monitor.stop()
   pass  
 
