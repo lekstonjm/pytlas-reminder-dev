@@ -13,14 +13,6 @@ import logging
 DEFAULT_SLEEP_TIME = 3.0
 DEFAULT_TIMEOUT = 1.0
 
-# Hey there o/
-# Glad you're taking some times to make a skill for the pytlas assistant!
-# Here is all you have to know to make your own skills, let's go!
-
-# Start by defining training data used to trigger your skill.
-# Here we are defining the TEMPLATE_SKILL_INTENT with some training data.
-# In english:
-
 @training('en')
 def en_training(): return """
 %[add_reminder]
@@ -133,11 +125,15 @@ class ReminderMonitor(Thread):
     self.reminder_db_path = reminder_db_path
     self.is_stopped = False
     self._logger = logging.getLogger(self.__class__.__name__.lower())
+    self.date_format = "%Y-%m-%d"
+    self.time_format = "%H:%M:%S"
+    self.datetime_format = "{0} {1}".format(self.date_format, self.time_format)
     
   def run(self):
     self._logger.info("Monitor started")
     while (not self.is_stopped):
-      self.proceed_reminder()
+      if self.database_exists():
+        self.proceed_reminder()
       time.sleep(DEFAULT_SLEEP_TIME)
     self._logger.info("Monitor ended")
 
@@ -169,7 +165,7 @@ class ReminderMonitor(Thread):
       sql_command = """
       DELETE FROM reminder WHERE next_occurence <= ? AND frequency = 'once'
       """
-      sql_parameters = (datetime.now())
+      sql_parameters = (datetime.now().strftime(self.datetime_format),)
       db_connection.execute(sql_command, sql_parameters)
       db_connection.commit()
     except Exception as _ex:
@@ -180,10 +176,10 @@ class ReminderMonitor(Thread):
       sql_command = """
       SELECT object from reminder WHERE next_occurence <= ?
       """
-      sql_parameters = (datetime.now())
-      db_connection.execute(sql_command, sql_parameters)
-      db_connection.commit()
-      occurences = db_connection.fetchall()
+      sql_parameters = (datetime.now().strftime(self.datetime_format),)
+      cur = db_connection.cursor()      
+      cur.execute(sql_command, sql_parameters)
+      occurences = cur.fetchall()
       return occurences
     except Exception as _ex:
       pass
@@ -195,10 +191,10 @@ class ReminderMonitor(Thread):
     db_connection.execute("""
     CREATE TABLE IF NOT EXISTS reminder
     (id integer PRIMARY KEY,
-    reference_date datetime,
-    reference_time datetime,
+    reference_date text,
+    reference_time text,
     recurrence_type text,
-    next_occurence datetime,
+    next_occurence text,
     object text)
     """)
     db_connection.commit()
@@ -213,7 +209,7 @@ class ReminderMonitor(Thread):
     VALUES 
     (?,?,?,?,?)
     """
-    insert_parameters = (reminder_date, reminder_time, reminder_frequency, reminder_object, next_occurence)
+    insert_parameters = (reminder_date.strftime(self.date_format), reminder_time.strftime(self.time_format), reminder_frequency, reminder_object, next_occurence.strftime(self.datetime_format),)
     db_connection.execute(insert_command, insert_parameters)
     db_connection.commit()
     db_connection.close()  
@@ -231,7 +227,7 @@ def when_an_agent_is_created(agt):
   agt._logger.info("{0}".format(len(agents)))    
 
   if len(agents) == 0:
-    reminder_db_path = agt.settings.get('reminder_db_path',section='pytlas_reminder')
+    reminder_db_path = agt.settings.get('reminder_db_path',section='reminder')
     if reminder_db_path == None:
       reminder_db_path = os.path.join(os.getcwd(),'pytlas_reminder.sqlite')    
     monitor = ReminderMonitor(reminder_db_path)
