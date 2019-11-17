@@ -28,15 +28,14 @@ def en_training(): return """
   buy a gift to my boss
 
 @[reminder_frequency]
+  hour
   day
   monday
   friday
-  working day
   week
   month
-  trimester
-  semester
-
+  year
+ 
 @[reminder_date](type=datetime)
   tomorrow
   next week
@@ -153,17 +152,35 @@ class ReminderMonitor(Thread):
       for occurence in occurences:
         for _agent_id, agent_ref in agents.items():
           if not agent_ref() == None:  
-            agent_ref().answer(occurence[0])
+            agent_ref().answer("This is a reminder: {0}".format(occurence[0]))
     except Exception as _ex:
       pass
 
   def database_exists(self):
     return os.path.isfile(self.reminder_db_path)
 
+  def update_once(self, db_connection):
+    try:
+      sql_command = """
+      BEGIN TRANSACTION
+      DELETE FROM reminder WHERE recurrence_type = 'once' AND  next_occurence <= ? 
+      UPDATE reminder set next_occurence  = datetime(next_occurence, '+1 hour') WHERE recurrence_type = 'hour' AND next_occurence <= ?
+      UPDATE reminder set next_occurence  = datetime(next_occurence, '+1 day') WHERE recurrence_type = 'day' AND next_occurence <= ?
+      UPDATE reminder set next_occurence  = datetime(next_occurence, '+1 week' ) WHERE recurrence_type = 'weekday' AND next_occurence <= ?
+      UPDATE reminder set next_occurence  = datetime(next_occurence, '+1 month' ) WHERE recurrence_type = 'month' AND next_occurence <= ?
+      UPDATE reminder set next_occurence  = datetime(next_occurence, '+1 year' ) WHERE recurrence_type = 'month' AND next_occurence <= ?
+      END TRANSACTION
+      """
+      sql_parameters = (datetime.now().strftime(self.datetime_format),)
+      db_connection.execute(sql_command, sql_parameters)
+      db_connection.commit()
+    except Exception as _ex:
+      pass
+
   def update_occurences(self, db_connection):
     try:
       sql_command = """
-      DELETE FROM reminder WHERE next_occurence <= ? AND frequency = 'once'
+      DELETE FROM reminder WHERE next_occurence <= ? AND recurrence_type = 'once'
       """
       sql_parameters = (datetime.now().strftime(self.datetime_format),)
       db_connection.execute(sql_command, sql_parameters)
